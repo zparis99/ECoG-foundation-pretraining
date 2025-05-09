@@ -52,7 +52,7 @@ def test_file_dataset_can_handle_configurable_bands(dataset_creation_fn):
     config = ECoGDataConfig(
         batch_size=32,
         bands=[[4, 8], [8, 13], [13, 30], [30, 55]],
-        new_fs=20,
+        new_fs=32,
     )
     file_dataset = dataset_creation_fn(
         config,
@@ -187,7 +187,7 @@ def test_dataloader_frees_data_correctly(create_fake_mne_file_fn):
     data_config = ECoGDataConfig(
         batch_size=16,
         bands=[[4, 8], [8, 13], [13, 30], [30, 55]],
-        new_fs=20,
+        new_fs=32,
         sample_length=2,
     )
     # Two batches of data per file. Create 20 files.

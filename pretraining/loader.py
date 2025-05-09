@@ -13,7 +13,7 @@ import logging
 import json
 from typing import Optional
 
-from config import ECoGDataConfig, VideoMAEExperimentConfig
+from ecog_foundation_model.config import ECoGDataConfig, VideoMAEExperimentConfig
 from ecog_foundation_model.ecog_utils import preprocess_neural_data
 
 logger = logging.getLogger(__name__)
