@@ -1,0 +1,59 @@
+video_mae_task_config:
+  vit_config:
+    dim: 64
+    decoder_embed_dim: 64
+    mlp_ratio: 4.0
+    depth: 8
+    decoder_depth: 6
+    num_heads: 8
+    decoder_num_heads: 8
+    patch_size: 1
+    frame_patch_size: 8
+    use_cls_token: false
+    sep_pos_embed: true
+    trunc_init: false
+    no_qkv_bias: false
+    proj_drop: 0.1
+    drop_path: 0.05
+  encoder_mask_ratio: 0.5
+  pct_masks_to_decode: 0.75
+  alpha: 0.5
+
+ecog_data_config:
+  data_size: 1.0
+  batch_size: 8
+  env: false
+  bands:
+    - [70, 200]
+  original_fs: 512
+  new_fs: 256
+  dataset_path: /scratch/gpfs/ln1144/ECoG-foundation-model/dataset_full
+  train_data_proportion: 0.9
+  sample_length: 1
+  shuffle: true
+  max_open_files: 20
+
+logging_config:
+  event_log_dir: event_logs
+  plot_dir: plots
+  print_freq: 20
+
+trainer_config:
+  max_learning_rate: 0.00005
+  num_epochs: 10
+  weight_decay: 0.01
+  mixed_precision: bf16
+  gradient_accumulation_steps: 2
+
+
+job_name: "grad_accum={}-encoder_mask_ratio={}-weight_decay={}-proj_drop={}-drop_path={}-lr={}-precision={}-alpha={}"
+format_fields: [
+  trainer_config.gradient_accumulation_steps,
+  video_mae_task_config.encoder_mask_ratio,
+  trainer_config.weight_decay,
+  video_mae_task_config.vit_config.proj_drop,
+  video_mae_task_config.vit_config.drop_path,
+  trainer_config.max_learning_rate,
+  trainer_config.mixed_precision,
+  video_mae_task_config.alpha,
+]
