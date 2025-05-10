@@ -28,6 +28,13 @@ CMD = sbatch --job-name=$(JOB_NAME) submit.sh
 # --use-contrastive-loss (not implemented yet!)
 # --running-cell-masking -> specific type of decoder masking (not properly tested yet!)
 
+MODEL_CONFIGS := patch_dim_1_small patch_dim_1_medium patch_dim_1_large patch_dim_2_small patch_dim_2_medium patch_dim_2_large
+
+foundation-model-list:
+	for item in $(MODEL_CONFIGS); do \
+		$(MAKE) model-train PREFIX=$$item CONFIG_FILE="configs/$$item.yml"; \
+	done
+
 model-train:
 	mkdir -p logs
 	$(CMD) pretraining/main.py \

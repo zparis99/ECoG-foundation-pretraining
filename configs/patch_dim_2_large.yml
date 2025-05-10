@@ -2,7 +2,7 @@ video_mae_task_config:
   encoder_mask_ratio: 0.5
   pct_masks_to_decode: 0.75
   alpha: 0.5
-  model_name: patch_dim_1_large
+  model_name: patch_dim_2_large
 
 ecog_data_config:
   data_size: 1.0
