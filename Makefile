@@ -30,5 +30,5 @@ CMD = sbatch --job-name=$(JOB_NAME) submit.sh
 
 model-train:
 	mkdir -p logs
-	$(CMD) ECoG_MAE/main.py \
+	$(CMD) pretraining/main.py \
 		--config-file $(CONFIG_FILE);

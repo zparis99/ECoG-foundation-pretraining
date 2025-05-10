@@ -1,14 +1,14 @@
 video_mae_task_config:
   vit_config:
-    dim: 512
+    dim: 384
     decoder_embed_dim: 256
     mlp_ratio: 4.0
     depth: 10
     decoder_depth: 6
-    num_heads: 16
+    num_heads: 12
     decoder_num_heads: 8
     patch_size: 1
-    frame_patch_size: 8
+    frame_patch_size: 16
     use_cls_token: false
     sep_pos_embed: true
     trunc_init: false
@@ -39,21 +39,20 @@ logging_config:
   print_freq: 20
 
 trainer_config:
-  max_learning_rate: 0.00005
+  max_learning_rate: 0.00001
   num_epochs: 10
   weight_decay: 0.01
   mixed_precision: 'no'
   gradient_accumulation_steps: 2
 
 
-job_name: "grad_accum={}-encoder_mask_ratio={}-weight_decay={}-proj_drop={}-drop_path={}-lr={}-precision={}-alpha={}"
+job_name: "grad_accum={}-encoder_mask_ratio={}-dim={}-decoder_dim={}-num_heads={}-decoder_heads={}-fps={}"
 format_fields: [
   trainer_config.gradient_accumulation_steps,
   video_mae_task_config.encoder_mask_ratio,
-  trainer_config.weight_decay,
-  video_mae_task_config.vit_config.proj_drop,
-  video_mae_task_config.vit_config.drop_path,
-  trainer_config.max_learning_rate,
-  trainer_config.mixed_precision,
-  video_mae_task_config.alpha,
+  video_mae_task_config.vit_config.dim,
+  video_mae_task_config.vit_config.decoder_embed_dim,
+  video_mae_task_config.vit_config.num_heads,
+  video_mae_task_config.vit_config.decoder_num_heads,
+  video_mae_task_config.vit_config.frame_patch_size,
 ]

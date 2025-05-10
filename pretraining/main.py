@@ -1,8 +1,8 @@
 import sys
-from pretraining.training_setup import system_setup, model_setup
-from config import create_video_mae_experiment_config_from_yaml
+from training_setup import system_setup, model_setup
+from ecog_foundation_model.config import create_video_mae_experiment_config_from_yaml
 from loader import dl_setup
-from mae_st_util.logging import setup_logging
+from ecog_foundation_model.mae_st_util.logging import setup_logging
 from train import train_model
 
 

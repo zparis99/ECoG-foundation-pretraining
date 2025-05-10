@@ -155,14 +155,6 @@ def test_single_epoch(
                 plot_path = os.path.join(
                     config.logging_config.plot_dir, config.job_name
                 )
-                save_reconstruction_plot(
-                    signal_np,
-                    pred_signal_np,
-                    epoch,
-                    plot_path,
-                    log_writer=log_writer,
-                    t_patch_size=config.video_mae_task_config.vit_config.frame_patch_size,
-                )
 
                 # Save a reconstruction plot for scaled signal as well.
                 save_reconstruction_plot(
@@ -171,7 +163,7 @@ def test_single_epoch(
                     epoch,
                     plot_path,
                     log_writer=log_writer,
-                    t_patch_size=config.video_mae_task_config.vit_config.frame_patch_size,
+                    pred_t_dim=model.pred_t_dim,
                     tag="signal_reconstruction_scaled",
                     scale_output=True,
                 )
