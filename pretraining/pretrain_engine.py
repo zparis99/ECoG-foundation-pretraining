@@ -186,3 +186,5 @@ def test_single_epoch(
             log_writer.add_scalar("mse/test", mse_mean, epoch_1000x)
             # Write overall correlation, individual channels, and bands.
             log_writer.add_scalar("correlation/test", correlation_mean, epoch_1000x)
+
+    return loss_mean, mse_mean, correlation_mean
