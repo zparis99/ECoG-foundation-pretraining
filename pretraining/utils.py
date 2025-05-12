@@ -6,8 +6,8 @@ import scipy
 from einops import rearrange
 from typing import Optional
 
-from config import ViTConfig
-import constants
+from ecog_foundation_model.config import ViTConfig
+from ecog_foundation_model import constants
 
 
 def seed_everything(seed=0, cudnn_deterministic=True):

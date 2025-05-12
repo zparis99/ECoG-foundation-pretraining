@@ -1,12 +1,16 @@
 import sys
-from pretraining.training_setup import system_setup, model_setup
-from config import create_video_mae_experiment_config_from_yaml
+from training_setup import system_setup, model_setup
+from ecog_foundation_model.config import dict_to_config
 from loader import dl_setup
-from mae_st_util.logging import setup_logging
+from ecog_foundation_model.mae_st_util.logging import setup_logging
 from train import train_model
+from config import PretrainingExperimentConfig
+
+import model_registry
 
 
 import argparse
+import yaml
 
 
 def arg_parser():
@@ -18,11 +22,28 @@ def arg_parser():
     return parser.parse_args()
 
 
+def create_experiment_config_from_yaml(
+    yaml_file_path: str,
+) -> PretrainingExperimentConfig:
+    with open(yaml_file_path, "r") as f:
+        config_dict = yaml.safe_load(f)
+    experiment_config = dict_to_config(config_dict, PretrainingExperimentConfig)
+    # Use model registry to construct model if provided.
+    if experiment_config.video_mae_task_config.model_name:
+        experiment_config.video_mae_task_config.vit_config = (
+            model_registry.model_registry[
+                experiment_config.video_mae_task_config.model_name
+            ]()
+        )
+
+    return experiment_config
+
+
 def main(args):
 
     setup_logging()
 
-    experiment_config = create_video_mae_experiment_config_from_yaml(args.config_file)
+    experiment_config = create_experiment_config_from_yaml(args.config_file)
 
     accelerator, device, data_type, local_rank = system_setup(
         experiment_config.trainer_config.mixed_precision

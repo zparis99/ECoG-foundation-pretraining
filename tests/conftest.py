@@ -5,7 +5,7 @@ import mne
 import pytest
 from torch.utils.data import DataLoader
 
-from config import ECoGDataConfig
+from ecog_foundation_model.config import ECoGDataConfig
 from loader import ECoGFileDataset
 
 
