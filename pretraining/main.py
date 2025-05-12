@@ -1,12 +1,10 @@
 import sys
 from training_setup import system_setup, model_setup
-from ecog_foundation_model.config import dict_to_config
+from ecog_foundation_model.config import dict_to_config, VideoMAEExperimentConfig
+from ecog_foundation_model import model_registry
 from loader import dl_setup
 from ecog_foundation_model.mae_st_util.logging import setup_logging
 from train import train_model
-from config import PretrainingExperimentConfig
-
-import model_registry
 
 
 import argparse
@@ -24,10 +22,10 @@ def arg_parser():
 
 def create_experiment_config_from_yaml(
     yaml_file_path: str,
-) -> PretrainingExperimentConfig:
+) -> VideoMAEExperimentConfig:
     with open(yaml_file_path, "r") as f:
         config_dict = yaml.safe_load(f)
-    experiment_config = dict_to_config(config_dict, PretrainingExperimentConfig)
+    experiment_config = dict_to_config(config_dict, VideoMAEExperimentConfig)
     # Use model registry to construct model if provided.
     if experiment_config.video_mae_task_config.model_name:
         experiment_config.video_mae_task_config.vit_config = (
