@@ -1,4 +1,4 @@
-git+https://github.com/zparis99/ECoG-foundation-model.git@v0.1.0#egg=ecog_foundation_model
+git+https://github.com/zparis99/ECoG-foundation-model.git@v1.0.3#egg=ecog_foundation_model
 absl-py==2.1.0
 accelerate==0.26.1
 aiofiles==22.1.0

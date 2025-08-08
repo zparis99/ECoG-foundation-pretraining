@@ -11,18 +11,18 @@ import torch
 from torch.utils.data import Dataset, Sampler, IterableDataset
 import logging
 import json
-from typing import Optional
+from typing import Sequence
 
 from ecog_foundation_model.config import ECoGDataConfig, VideoMAEExperimentConfig
-from ecog_foundation_model.ecog_utils import preprocess_neural_data
 
 logger = logging.getLogger(__name__)
 
 
+# TODO: change this to use metdata for setting values of fields
 class ECoGFileDataset(Dataset):
     CACHE_FILE = "loader_cache.json"
 
-    def __init__(self, path: str, config: ECoGDataConfig, use_cache: bool = True):
+    def __init__(self, path: str, config: ECoGDataConfig, metadata: dict):
         super().__init__()
         self.config = config
         self.path = path
@@ -33,31 +33,12 @@ class ECoGFileDataset(Dataset):
         self.signal = None
         self.num_reads = 0
 
-        # Load or initialize cache
-        if os.path.exists(self.CACHE_FILE) and use_cache:
-            with open(self.CACHE_FILE, "r") as f:
-                cache = json.load(f)
-        else:
-            cache = {}
+        assert self.bands == metadata["bands"]
+        assert self.new_fs == metadata["new_fs"]
 
-        # Check if this path is in cache, to save time.
-        if self.path in cache:
-            cached_data = cache[self.path]
-            self.max_samples = int(cached_data["max_samples"])
-        else:
-            # Compute and cache if not found
-            signal = self._load_grid_data()
-            self.max_samples = int(signal.shape[1] / self.fs / config.sample_length)
-
-            # Update cache
-            if use_cache:
-                cache[self.path] = {
-                    "max_samples": float(self.max_samples),
-                }
-
-                # Save updated cache
-                with open(self.CACHE_FILE, "w") as f:
-                    json.dump(cache, f)
+        self.max_samples = int(
+            metadata["total_timepoints_at_new_fs"] / self.sample_length / self.new_fs
+        )
 
     def __len__(self):
         return self.max_samples
@@ -70,17 +51,19 @@ class ECoGFileDataset(Dataset):
         self.num_reads += 1
 
         # Exclude examples where the sample goes past the end of the signal.
-        start_sample = idx * self.sample_length * self.fs
-        end_sample = (idx + 1) * self.sample_length * self.fs
+        start_timepoint = int(idx * self.sample_length * self.new_fs)
+        end_timepoint = int((idx + 1) * self.sample_length * self.new_fs)
 
-        return self.sample_data(start_sample, end_sample)
+        # The signal is already in the final [c, t, h, w] format
+        return self.signal[:, start_timepoint:end_timepoint, :, :]
 
     def preload_data(self):
         logger.debug(
             "-----------------------------------------------------------------------------"
         )
         logger.debug("Reading new file: %s", self.path)
-        self.signal = self._load_grid_data()
+        # Call the new loading function
+        self.signal = self._load_preprocessed_data()
         return self
 
     def free_data(self):
@@ -95,84 +78,39 @@ class ECoGFileDataset(Dataset):
         del self.signal
         self.signal = None
 
+    # This function is no longer needed in its original form if data is preprocessed
     def sample_data(self, start_sample, end_sample) -> np.array:
-
-        current_sample = self.signal[:, start_sample:end_sample]
-
-        preprocessed_signal = preprocess_neural_data(
-            current_sample,
-            self.fs,
-            self.new_fs,
-            self.sample_length,
-            bands=self.bands,
-            env=self.config.env,
+        # This method will be simplified as preprocessing is done already
+        # The __getitem__ now directly extracts the slice from self.signal
+        raise NotImplementedError(
+            "sample_data should not be called directly. Use __getitem__."
         )
 
-        return preprocessed_signal
-
-    def _load_grid_data(self):
-        """Overridable function to load data from an mne file and return it in an unprocessed grid.
-
-        Can be overridden to support different data types. Data will be preprocessed in the same way and returned via iteration over the dataset.
-
-        Returns:
-            numpy array of shape [number of electrodes, num_samples].
-        """
-
-        # load edf and extract signal
-        raw = read_raw(self.path)
-
-        # here we define the grid - since for patient 798 grid electrodes are G1 - G64
-        grid_ch_names = []
-        for i in range(64):
-            channel = "G" + str(i + 1)
-            if np.isin(channel, raw.info.ch_names):
-                grid_ch_names.append(channel)
-
-        sig = raw.get_data(
-            picks=grid_ch_names,
-        )
-        n_samples = sig.shape[1]
-
-        # zero pad if channel is not included in grid #TODO a bit clunky right now, implement in a better and more flexible way
-        # since we will load by index position of channel (so if a channel is not included it will load channel n+1 at position 1),
-        # we correct that by inserting 0 at position n and shift value one upwards
-        for i in range(64):
-            channel = "G" + str(i + 1)
-            # first we check whether the channel is included
-            if not np.isin(channel, raw.info.ch_names):
-                # if not we insert 0 padding and shift upwards
-                sig = np.insert(
-                    sig, i, np.ones((n_samples), dtype=np.float32) * np.nan, axis=0
-                )
-
-        # delete items that were shifted upwards
-        sig = sig[:64, :]
-
-        # Make sure signal is float32
-        sig = np.float32(sig)
-
-        return sig
+    def _load_preprocessed_data(self):
+        """Loads preprocessed and normalized data from a .npy file."""
+        if not os.path.exists(self.path):
+            raise FileNotFoundError(f"Preprocessed file not found: {self.path}")
+        sig = np.load(self.path)
+        # Ensure the loaded data is of the expected type if not already
+        return np.float32(sig)
 
 
 class SequentialMultiFileECoGDataset(IterableDataset):
     def __init__(
         self,
-        filepaths,
+        paths_and_metadata,
         config: ECoGDataConfig,
         file_dataset=ECoGFileDataset,
-        use_cache: bool = True,
         load_on_init: bool = False,
     ):
         super().__init__()
-        self.filepaths = filepaths
+        self.paths_and_metadata = paths_and_metadata
         self.config = config
-        self.use_cache = use_cache
 
         # Create file datasets for each filepath
         self.file_datasets = []
-        for path in self.filepaths:
-            dataset = file_dataset(path, config, use_cache)
+        for path, metadata in self.paths_and_metadata:
+            dataset = file_dataset(path, config, metadata)
             self.file_datasets.append(dataset)
 
         # Calculate total number of samples across all files
@@ -195,7 +133,7 @@ class SequentialMultiFileECoGDataset(IterableDataset):
                 self.current_file_idx
             ].preload_data()
             logger.debug(
-                f"Preloaded file {self.current_file_idx}: {self.filepaths[self.current_file_idx]}"
+                f"Preloaded file {self.current_file_idx}: {self.paths_and_metadata[self.current_file_idx][0]}"
             )
 
     def __iter__(self):
@@ -249,17 +187,16 @@ class MultiFileECoGDataset(Dataset):
 
     def __init__(
         self,
-        filepaths,
+        paths_and_metadata,
         config: ECoGDataConfig,
         file_dataset=ECoGFileDataset,
-        use_cache: bool = True,
         generator: torch.Generator = None,
         load_on_init: bool = False,
     ):
         super().__init__()
         self.datasets = [
-            file_dataset(filepath, config, use_cache=use_cache)
-            for filepath in filepaths
+            file_dataset(filepath, config, metadata)
+            for filepath, metadata in paths_and_metadata
         ]
         self.max_open_files = config.max_open_files
 
@@ -417,110 +354,105 @@ def read_raw(filename):
 
 
 def get_dataset_path_info(
-    sample_length: int, root: str, data_split: pd.DataFrame
+    data_split: pd.DataFrame,
+    preprocessed_root: str,
+    config: ECoGDataConfig,
 ) -> tuple[list[str], int, pd.DataFrame]:
     """Generates information about the data referenced in data_split.
 
     Args:
-        sample_length (int): number of seconds for each sample
-        root (str): Filepath to root of BIDS dataset.
-        data_split (pd.DataFrame): Dataframe storing references to the files to be used in this data split. Should have columns subject, task, and chunk.
+        data_split (pd.DataFrame): Dataframe storing references to the files to be used in this data split.
+        preprocessed_root (str): Root directory where the preprocessed .npy and .json files are stored.
 
-    Returns: (List of filepaths to be used for data_split, Number of  samples for the data split, Dataframe with columns {'name': <filepath>, 'num_samples': <number of samples in file>})
+    Returns: (List of filepaths to be used for data_split, Number of samples for the data split, Dataframe with columns {'name': <filepath>, 'num_samples': <number of samples in file>})
     """
-    split_filepaths = []
-
+    split_paths_and_metadata = []
     num_samples = 0
-
     sample_desc = []
 
     for i, row in data_split.iterrows():
-        path = BIDSPath(
-            root=root,
-            datatype="car",
+        # Construct paths for both .npy data and .json metadata
+        data_bids_path = BIDSPath(
+            root=preprocessed_root,
+            datatype="ieeg",
             subject=f"{row.subject:02d}",
             task=f"part{row.task:03d}chunk{row.chunk:02d}",
-            suffix="desc-preproc_ieeg",
-            extension=".edf",
+            suffix="desc-preproc_norm_ieeg",
+            extension=".npy",
             check=False,
         )
+        data_path = str(data_bids_path.fpath)
 
-        data_path = str(path.fpath)
-        sample_desc.append(
-            {
-                "name": data_path,
-                "num_samples": int(
-                    highlevel.read_edf_header(edf_file=data_path)["Duration"]
-                    / sample_length
-                ),
-            }
+        meta_bids_path = BIDSPath(
+            root=preprocessed_root,
+            datatype="ieeg",
+            subject=f"{row.subject:02d}",
+            task=f"part{row.task:03d}chunk{row.chunk:02d}",
+            suffix="desc-preproc_norm_ieeg_meta",  # Match the new suffix
+            extension=".json",
+            check=False,
         )
+        meta_path = str(meta_bids_path.fpath)
 
-        num_samples = num_samples + int(
-            highlevel.read_edf_header(edf_file=data_path)["Duration"] / sample_length
-        )
+        if os.path.exists(data_path) and os.path.exists(meta_path):
+            with open(meta_path, "r") as f:
+                metadata = json.load(f)
+            num_samples_in_file = (
+                metadata["total_timepoints_at_new_fs"]
+                / config.sample_length
+                / metadata["new_fs"]
+            )
 
-        split_filepaths.append(data_path)
+            sample_desc.append(
+                {
+                    "name": data_path,
+                    "metadata": meta_path,
+                    "num_samples": num_samples_in_file,
+                }
+            )
+            num_samples += num_samples_in_file
+            split_paths_and_metadata.append((data_path, metadata))
 
-    return split_filepaths, num_samples, pd.DataFrame(sample_desc)
+    return split_paths_and_metadata, num_samples, pd.DataFrame(sample_desc)
 
 
 def _create_train_dataloader_from_df(
-    root: str,
+    root: str,  # This `root` should now be the `preprocessed_normalized_root`
     data_files_df: pd.DataFrame,
     ecog_data_config: ECoGDataConfig,
-    use_cache=True,
 ) -> tuple[torch.utils.data.DataLoader, int, pd.DataFrame]:
-    """Given a dataframe containing the BIDS data info in a dataset and the data config, create a dataloader and associated information.
-
-    Args:
-        data_files_df (pd.DataFrame): Has columns subject, task, and chunk for finding desired data in BIDS format.
-        ecog_data_config (ECoGDataConfig): Configuration for how to preprocess data.
-
-    Returns:
-        tuple[torch.utils.data.DataLoader, int, pd.DataFrame]: [Dataloader for data, number of samples in dataloader, descriptions of how many samples are in each file]
-    """
     # load and concatenate data for train split
-    filepaths, num_samples, sample_desc = get_dataset_path_info(
-        ecog_data_config.sample_length, root, data_files_df
+    # Pass the 'root' (which is now preprocessed_normalized_root) to get_dataset_path_info
+    paths_and_metadata, num_samples, sample_desc = get_dataset_path_info(
+        data_files_df,
+        root,  # Pass root as preprocessed_root
+        ecog_data_config,
     )
-    dataset = MultiFileECoGDataset(filepaths, ecog_data_config, use_cache=use_cache)
+    paths_and_metadata = paths_and_metadata[
+        : int(ecog_data_config.data_size * len(paths_and_metadata))
+    ]
+    dataset = MultiFileECoGDataset(paths_and_metadata, ecog_data_config)
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=ecog_data_config.batch_size,
         sampler=BufferedFileRandomSampler(dataset),
     )
-
     return dataloader, num_samples, sample_desc
 
 
-def create_test_dataloader_from_df(
-    root: str,
-    data_files_df: pd.DataFrame,
-    ecog_data_config: ECoGDataConfig,
-    use_cache=True,
+def _create_test_dataloader_from_df(
+    root: str, data_files_df: pd.DataFrame, ecog_data_config: ECoGDataConfig
 ) -> tuple[torch.utils.data.DataLoader, int, pd.DataFrame]:
-    """Given a dataframe containing the BIDS data info in a dataset and the data config, create a dataloader and associated information.
-
-    Args:
-        data_files_df (pd.DataFrame): Has columns subject, task, and chunk for finding desired data in BIDS format.
-        ecog_data_config (ECoGDataConfig): Configuration for how to preprocess data.
-
-    Returns:
-        tuple[torch.utils.data.DataLoader, int, pd.DataFrame]: [Dataloader for data, number of samples in dataloader, descriptions of how many samples are in each file]
-    """
-    # load and concatenate data for train split
-    filepaths, num_samples, sample_desc = get_dataset_path_info(
-        ecog_data_config.sample_length, root, data_files_df
+    paths_and_metadata, num_samples, sample_desc = get_dataset_path_info(
+        data_files_df,
+        root,  # Pass root as preprocessed_root
+        ecog_data_config,
     )
-    dataset = SequentialMultiFileECoGDataset(
-        filepaths, ecog_data_config, use_cache=use_cache
-    )
+    dataset = SequentialMultiFileECoGDataset(paths_and_metadata, ecog_data_config)
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=ecog_data_config.batch_size,
     )
-
     return dataloader, num_samples, sample_desc
 
 
@@ -528,35 +460,29 @@ def dl_setup(
     config: VideoMAEExperimentConfig,
 ) -> tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader, int]:
     """
-    Sets up dataloaders for train and test split. Here, we use a chain dataset implementation, meaning we concatenate 1 hour chunks of our data as iterable datasets into a larger
-    dataset from which we can stream - https://discuss.pytorch.org/t/using-chaindataset-to-combine-iterabledataset/85236
-
-    Args:
-        config: command line arguments
-
-    Returns:
-        train_dl: dataloader instance for train split
-        test_dl: dataloader instance for test split
+    Sets up dataloaders for train and test split using preprocessed data.
     """
-
     dataset_path = os.path.join(os.getcwd(), config.ecog_data_config.dataset_path)
-    root = os.path.join(dataset_path, "derivatives/preprocessed")
+    preprocessed_normalized_root = os.path.join(
+        dataset_path, "derivatives", "preprocessed_normalized"
+    )
     data = pd.read_csv(os.path.join(dataset_path, "dataset.csv"))
 
     # only look at subset of data
-    data = data.iloc[: int(len(data) * config.ecog_data_config.data_size), :]
-    # data = data.iloc[int(len(data) * (1 - config.ecog_data_config.data_size)) :, :]
+    # data = data.iloc[: int(len(data) * config.ecog_data_config.data_size), :]
     train_data, test_data = split_dataframe(
         config.ecog_data_config.shuffle,
         data,
         config.ecog_data_config.train_data_proportion,
     )
 
+    # Pass the new preprocessed_normalized_root to _create_train_dataloader_from_df
     train_dl, num_train_samples, train_samples_desc = _create_train_dataloader_from_df(
-        root, train_data, config.ecog_data_config
+        preprocessed_normalized_root, train_data, config.ecog_data_config
     )
-    test_dl, _, test_samples_desc = create_test_dataloader_from_df(
-        root, test_data, config.ecog_data_config
+    # Pass the new preprocessed_normalized_root to create_test_dataloader_from_df
+    test_dl, _, test_samples_desc = _create_test_dataloader_from_df(
+        preprocessed_normalized_root, test_data, config.ecog_data_config
     )
 
     dir = os.getcwd() + f"/results/samples/"

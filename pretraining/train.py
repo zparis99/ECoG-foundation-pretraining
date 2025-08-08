@@ -1,3 +1,4 @@
+from dataclasses import asdict
 import multiprocessing as mp
 import time as t
 import logging
@@ -5,32 +6,16 @@ import os
 import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
-from dataclasses import is_dataclass
-from typing import Any, Union
 
 from ecog_foundation_model.config import (
     VideoMAEExperimentConfig,
     write_config_file_to_yaml,
 )
+from ecog_foundation_model.ecog_setup import CheckpointManager
 from pretrain_engine import train_single_epoch, test_single_epoch
 
 
 logger = logging.getLogger(__name__)
-
-
-def get_nested_value(obj: Union[dict, Any], path: str) -> Any:
-    fields = path.split(".")
-    current = obj
-    for field in fields:
-        if isinstance(current, dict):
-            current = current[field]
-        elif is_dataclass(current):
-            current = getattr(current, field)
-        else:
-            raise TypeError(
-                f"Cannot access field '{field}' on non-dict, non-dataclass object: {current}"
-            )
-    return current
 
 
 def train_model(
@@ -70,13 +55,12 @@ def train_model(
     model, optimizer, train_dl, test_dl = accelerator.prepare(
         model, optimizer, train_dl, test_dl
     )
+    ckpt_manager = CheckpointManager(
+        model, optimizer=optimizer, lr_scheduler=lr_scheduler, config=config
+    )
 
     os.makedirs(config.logging_config.event_log_dir, exist_ok=True)
     # Append time element to job name to differentiate between different runs.
-    if config.format_fields:
-        format_values = [get_nested_value(config, s) for s in config.format_fields]
-        config.job_name = config.job_name.format(*format_values)
-    config.job_name = config.job_name + "_" + str(int(t.time() // 60))
     log_writer = SummaryWriter(
         log_dir=os.path.join(config.logging_config.event_log_dir, config.job_name)
     )
@@ -118,21 +102,16 @@ def train_model(
                 "Epoch " + str(epoch) + " done. Time elapsed: " + str(end - start)
             )
 
-        # save model checkpoints
-        checkpoint = {
-            "epoch": epoch,
-            "model": model.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "lr_scheduler": lr_scheduler.state_dict(),
-        }
-
-        # Save a different checkpoint for every epoch.
-        torch.save(checkpoint, os.path.join(checkpoint_dir, f"{epoch}_checkpoint.pth"))
+        ckpt_manager.save(
+            os.path.join(checkpoint_dir, f"{epoch}_checkpoint.pth"),
+            tags={"epoch": epoch},
+        )
 
         # Check to see if this is the best checkpoint.
         if test_loss < best_loss:
-            torch.save(
-                model.state_dict(), os.path.join(best_checkpoint_dir, "model.pth")
+            ckpt_manager.save(
+                os.path.join(best_checkpoint_dir, "checkpoint.pth"),
+                tags={"epoch": epoch},
             )
 
     return model

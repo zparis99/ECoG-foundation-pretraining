@@ -54,13 +54,14 @@ def system_setup(mixed_precision="no"):
     return accelerator, device, data_type, local_rank
 
 
-def model_setup(config: VideoMAEExperimentConfig, device, num_train_samples):
+def model_setup(config: VideoMAEExperimentConfig, num_train_samples):
     """
     Sets up model config
 
     Args:
         config: experiment config
-        device: cuda device
+        mean: mean of input data
+        std: std of input data
 
     Returns:
         model: an untrained model instance with randomly initialized parameters

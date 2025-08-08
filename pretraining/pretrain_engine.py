@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import DataLoader
 from mask import *
 from utils import *
-from plot import save_reconstruction_plot
+from plot import save_reconstruction_plot, get_seen_signal
 from ecog_foundation_model.mae_st_util.models_mae import MaskedAutoencoderViT
 from ecog_foundation_model.config import VideoMAEExperimentConfig
 
@@ -52,36 +52,51 @@ def train_single_epoch(
     )
     header = "Epoch: [{}]".format(epoch)
 
+    gradient_accumulation_steps = config.trainer_config.gradient_accumulation_steps
+
+    # Initialize a counter for accumulated steps
+    accumulated_steps = 0
+
     for train_i, batch in enumerate(
         metric_logger.log_every(train_dl, config.logging_config.print_freq, header)
     ):
-        optimizer.zero_grad()
+        # We don't call optimizer.zero_grad() here directly.
+        # It will be called inside the accumulation logic or before the first step.
 
         signal = batch.to(device)
 
         padding_mask = get_padding_mask(signal, device)
-        # TODO: We don't necessarily need to call this so often but for now this is easier.
-        # We could be more clever with this though.
         model.initialize_mask(padding_mask)
 
-        # TODO: Add more metrics using the other outputs.
         loss, mse, _, _, _, correlation = model_forward(
             model,
             signal,
             config.video_mae_task_config.encoder_mask_ratio,
             config.video_mae_task_config.alpha,
         )
+
+        # Scale the loss by the number of accumulation steps
+        # This is important when loss is averaged over a batch to ensure correct gradient magnitude
+        loss = loss / gradient_accumulation_steps
+
         if torch.isnan(mse):
             logger.error(
                 f"Got nan loss for index {train_i}. Ignoring and continuing..."
             )
+            # If we skip a batch, we should not count it towards accumulation
             continue
 
         accelerator.backward(loss)
-        optimizer.step()
-        lr_scheduler.step()
 
-        loss_value = loss.item()
+        accumulated_steps += 1
+
+        # Perform optimizer step and scheduler step only after accumulating gradients
+        if (train_i + 1) % gradient_accumulation_steps == 0:
+            optimizer.step()
+            lr_scheduler.step()
+            optimizer.zero_grad()
+
+        loss_value = loss.item() * gradient_accumulation_steps
         mse_value = mse.item()
         correlation_value = correlation.item()
 
@@ -104,6 +119,13 @@ def train_single_epoch(
             log_writer.add_scalar("lr", lr, epoch_1000x)
             log_writer.add_scalar("mse/train", mse_value, epoch_1000x)
             log_writer.add_scalar("correlation/train", correlation_value, epoch_1000x)
+
+    # Handle any remaining accumulated gradients if the total number of batches is not
+    # a perfect multiple of gradient_accumulation_steps
+    if accumulated_steps > 0 and accumulated_steps % gradient_accumulation_steps != 0:
+        optimizer.step()
+        lr_scheduler.step()
+        optimizer.zero_grad()
 
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
@@ -133,7 +155,7 @@ def test_single_epoch(
             model.initialize_mask(padding_mask)
 
             # TODO: Add more metrics using the other outputs.
-            loss, mse, pred, _, _, correlation = model_forward(
+            loss, mse, pred, mask, _, correlation = model_forward(
                 model,
                 signal,
                 config.video_mae_task_config.encoder_mask_ratio,
@@ -155,6 +177,7 @@ def test_single_epoch(
                 plot_path = os.path.join(
                     config.logging_config.plot_dir, config.job_name
                 )
+                seen_signal = get_seen_signal(model, signal, mask)
 
                 # Save a reconstruction plot for scaled signal as well.
                 save_reconstruction_plot(
@@ -164,8 +187,9 @@ def test_single_epoch(
                     plot_path,
                     log_writer=log_writer,
                     pred_t_dim=model.pred_t_dim,
-                    tag="signal_reconstruction_scaled",
-                    scale_output=True,
+                    tag="signal_reconstruction",
+                    scale_output=False,
+                    seen_signal=seen_signal,
                 )
 
             running_loss += loss.item()

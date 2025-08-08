@@ -28,14 +28,21 @@ CMD = sbatch --job-name=$(JOB_NAME) submit.sh
 # --use-contrastive-loss (not implemented yet!)
 # --running-cell-masking -> specific type of decoder masking (not properly tested yet!)
 
-MODEL_CONFIGS := patch_dim_1_small patch_dim_1_medium patch_dim_1_large patch_dim_2_small patch_dim_2_medium patch_dim_2_large
+MODEL_NAMES := patch_dim_1_small patch_dim_1_medium patch_dim_1_large patch_dim_2_small patch_dim_2_medium patch_dim_2_large
 
 foundation-model-list:
-	for item in $(MODEL_CONFIGS); do \
-		$(MAKE) model-train PREFIX=$$item CONFIG_FILE="configs/$$item.yml"; \
+	@for item in $(MODEL_NAMES); do \
+		$(MAKE) model-train PREFIX=$$item MODEL_NAME=$$item; \
 	done
 
 model-train:
 	mkdir -p logs
 	$(CMD) pretraining/main.py \
-		--config-file $(CONFIG_FILE);
+		--config=configs/video_mae_train.yml \
+		--video_mae_task_config.model_name=$(MODEL_NAME);
+
+model-analysis:
+	mkdir -p logs
+	sbatch --job-name=$(JOB_NAME) high_mem_submit.sh pretraining/analyze_file_outputs.py \
+		--checkpoint_dir=checkpoints/$(TRIAL_NAME)/best_checkpoint \
+		--samples_dir=results/samples --out=$(TRIAL_NAME).pth

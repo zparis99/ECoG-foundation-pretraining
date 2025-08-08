@@ -1,19 +1,18 @@
 video_mae_task_config:
-  encoder_mask_ratio: 0.5
-  pct_masks_to_decode: 0.75
-  alpha: 0.5
-  model_name: patch_dim_1_large
+  encoder_mask_ratio: 0.25
+  pct_masks_to_decode: 1.0
+  alpha: 0.8
 
 ecog_data_config:
   data_size: 1.0
-  batch_size: 32
+  batch_size: 64
   env: false
   bands:
     - [70, 200]
   original_fs: 512
-  new_fs: 256
-  dataset_path: /scratch/gpfs/ln1144/ECoG-foundation-model/dataset_full
-  train_data_proportion: 0.9
+  new_fs: 64
+  dataset_path: /scratch/gpfs/zparis/ECoG-foundation-pretraining/dataset_full
+  train_data_proportion: 0.8
   sample_length: 1
   shuffle: true
   max_open_files: 45
@@ -24,16 +23,22 @@ logging_config:
   print_freq: 20
 
 trainer_config:
-  max_learning_rate: 0.00001
-  num_epochs: 10
-  weight_decay: 0.01
+  max_learning_rate: 0.0005
+  num_epochs: 20
+  weight_decay: 0.0
   mixed_precision: 'no'
-  gradient_accumulation_steps: 2
+  gradient_accumulation_steps: 4
 
 
-job_name: "model={}-grad_accum={}-encoder_mask_ratio={}"
+job_name: "model={}-encdr_mask={}-new_fs={}-bs={}-grad-acc={}-alpha={}-datasize={}-decoder={}-lr={:.2e}-noreg"
 format_fields: [
   video_mae_task_config.model_name,
-  trainer_config.gradient_accumulation_steps,
   video_mae_task_config.encoder_mask_ratio,
+  ecog_data_config.new_fs,
+  ecog_data_config.batch_size,
+  trainer_config.gradient_accumulation_steps,
+  video_mae_task_config.alpha,
+  ecog_data_config.data_size,
+  video_mae_task_config.pct_masks_to_decode,
+  trainer_config.max_learning_rate,
 ]
